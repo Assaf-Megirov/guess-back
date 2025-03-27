@@ -136,6 +136,7 @@ async function createGame(player1Id, player2Id) { //TODO: add support for more t
                 written: ""
             })
         });
+        logger.info(`Game created with ID: ${gameId}`);
         return gameId;
     } catch (err) {
         logger.error(`Error creating game: ${err}`);

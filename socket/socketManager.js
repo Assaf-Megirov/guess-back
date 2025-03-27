@@ -190,18 +190,17 @@ function initializeSocket(server) {
       }
       gameInvites.set(socket.userId, data.targetId);
       const targetSocket = getSocketByUserId(data.targetId);
-      targetSocket.emit("game_invite", {by: socket.userId});
+      targetSocket.emit("game_invite", {senderId: socket.userId, senderUsername: socket.username});
     });
 
-    socket.on("game_invite_accept", (data) => {
-      const gameId = gameModule.createGame(socket.userId, data.senderId);
-      socket.emit("game_init", {gameId: gameId});
-      getSocketByUserId(data.senderId).emit("game_init", {gameId: gameId});
+    socket.on("game_invite_accept", async (data) => {
+      const gameId = await gameModule.createGame(socket.userId, data.senderId);
+      socket.emit("game_init", {gameId: gameId, opponents: [{userId: data.senderId, username: getSocketByUserId(data.senderId).username}]});
+      getSocketByUserId(data.senderId).emit("game_init", {gameId: gameId, opponents: [{userId: socket.userId, username: socket.username}]});
       //now we wait for them both to connect to the game namespace
     });
   });
 
-  // Initialize game namespace
   const gameNamespace = io.of('/game');
   gameModule.initializeGameSocket(gameNamespace, socketAuth)
 
