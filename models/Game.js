@@ -28,6 +28,13 @@ const gameSchema = new Schema({
         type: Number, //time the game took in milliseconds
         default: 0
     },
+    winner: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    endTime: {
+        type: Date
+    },
     createdAt: {
         type: Date,
         default: Date.now

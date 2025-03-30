@@ -8,7 +8,7 @@ const { socketAuth } = require("../middleware/auth");
 const connectedUsers = new Map(); //{ userId: socketId }
 const socketToUser = new Map(); //reverse map for lookup: { socketId: userId }
 const gameInvites = new Map(); //{senderId: targetId}
-const ONLINE_STATUS_INTERVAL = 30000; //how long before checking if the user is active
+const ONLINE_STATUS_INTERVAL = 0.50 * 60 * 60 * 1000; //how long before checking if the user is active (half an hour)
 
 /**
  * Initializes Socket.io with the HTTP server and sets up authentication and event handlers

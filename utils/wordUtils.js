@@ -58,6 +58,10 @@ function loadLetterTreeSync(altPath = letterPath) {
  */
 function getNextTierCombos(tree, letters) {
     let currentNode = tree.root;
+    if(letters === "root"){
+      //give the all the direct children of the root node
+      return Object.keys(currentNode);
+    }
     for (const letter of letters) {
       if (!currentNode.hasOwnProperty(letter)) { //if letter doesnt exist
         return [];

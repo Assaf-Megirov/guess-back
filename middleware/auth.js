@@ -46,8 +46,13 @@ async function socketAuth(socket, next) {
         isOnline: true, 
         lastActive: Date.now() 
       });
-      
       logger.info(`User authenticated via socket: ${socket.username} (${socket.userId})`);
+
+      const gameId = socket.handshake.auth.gameId;
+      if (gameId) {
+        socket.gameId = gameId;
+        logger.info(`auth middleware added a gameId to the socket: ${gameId}`);
+      }
       next();
     } catch (error) {
       logger.error('Socket authentication error:', error);
