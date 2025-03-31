@@ -76,7 +76,7 @@ function initializeGameSocket(gameNamespace, authMiddleware) {
 
         socket.on("move", (data) =>{
             logger.info(`User ${userId} submitted move: ${data}`);
-            const {valid, reason} = isValidWord( data,games.get(gameId).playerData.get(userId).letters);
+            const {valid, reason} = isValidWord( data,games.get(gameId).playerData.get(userId).letters, games.get(gameId).playerData.get(userId).words);
             if(!valid){
                 gameNamespace.to(gameId).emit("invalid", {by: userId, reason: reason});
                 logger.info(`Move from user ${userId} is invalid because: ${reason}`);
@@ -248,14 +248,18 @@ function distributeLetters(gameState){
  *
  * @param {string} word - The word to validate.
  * @param {string} letters - The letters that the word must contain.
+ * @param {string[]} usedWords - An array of words that have already been used in the game.
  * @returns {{valid: boolean, reason: string}} An object indicating whether the word is valid and the reason if it is not.
  */
-function isValidWord(word, letters){
+function isValidWord(word, letters, usedWords){
     const lowerWord = word.toLowerCase();
     const lowerLetters = letters.toLowerCase();
 
     if(!words.has(lowerWord)){
         return {valid: false, reason: `${word} is not a word!`};
+    }
+    if(usedWords && usedWords.includes(lowerWord)){
+        return {valid: false, reason: `${word} has already been used!`};
     }
     for (const char of lowerLetters) {
         if (!lowerWord.includes(char)) {
