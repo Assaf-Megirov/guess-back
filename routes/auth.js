@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
+const { v4: uuidv4 } = require('uuid');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const logger = require('../utils/logger');
@@ -195,5 +196,20 @@ router.post('/logout', apiAuth, async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+
+//generate a temporary guest id
+router.get('/guestId', async (req, res) => {
+  try {
+    const guestId = generateGuestId();
+    res.json({ guestId });
+  } catch (error) {
+    logger.error('Error generating guest ID:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+generateGuestId = () => {
+  return `guest-${uuidv4()}`;
+};
 
 module.exports = { router };

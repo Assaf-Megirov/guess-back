@@ -1,9 +1,11 @@
 const logger = require('../utils/logger');
-const Game = require('../models/Game');
+const {Game, Winner} = require('../models/Game');
 const GameState = require('../types/gameState');
+const mongoose = require('mongoose');
 const { loadDictionary, loadLetterTreeSync, getNextTierCombos } = require('../utils/wordUtils');
 
 const games = new Map();
+const gameCodes = new Map(); //maps gameCodes to gameIds
 const connectedPlayers = new Map();
 const gameTimers = new Map();
 const words = loadDictionary();
@@ -29,16 +31,21 @@ function initializeGameSocket(gameNamespace, authMiddleware) {
     gameNamespace.use(authMiddleware);
     //expects: auth: token: string | query: gameId: string
     gameNamespace.on("connection", (socket) => {
-        const gameId = socket.gameId;
+        let gameId = socket.gameId;
+        const gameCode = socket.gameCode;
         const userId = socket.userId;
         logger.info(`User ${userId} connected to game ${gameId}`);
-
-        //add players to the map at this game
+        if(!gameId && !gameCode){
+            logger.warn(`Socket connection rejected - no gameId or gameCode provided`);
+            return socket.disconnect('Authentication error: No gameId or gameCode provided');
+        }
+        if(!gameId){
+            gameId = gameCodes.get(gameCode);
+        }
         if(!connectedPlayers.has(gameId)){
             connectedPlayers.set(gameId, new Set());
         }
-        connectedPlayers.get(gameId).add(userId);
-        
+        connectedPlayers.get(gameId).add(userId); //add player to the map at this game
         const game = games.get(gameId);
         if(game && connectedPlayers.get(gameId).size === game.players.length){
             logger.info(`All players connected to game ${gameId}. Starting game...`);
@@ -136,6 +143,10 @@ function initializeGameSocket(gameNamespace, authMiddleware) {
                         gameTimers.delete(gameId);
                         logger.info(`Cleared elapsed time tracking for game ${gameId} after all players disconnected`);
                     }
+                    if(game.gameCode && gameCodes.has(game.gameCode)){
+                        gameCodes.delete(game.gameCode);
+                        logger.info(`Cleared game code for game ${gameId} after all players disconnected`);
+                    }
                 }
             }
         });
@@ -147,18 +158,24 @@ function initializeGameSocket(gameNamespace, authMiddleware) {
  * 
  * @async
  * @function createGame
- * @param {string} player1Id - The ID of the first player.
- * @param {string} player2Id - The ID of the second player.
+ * @param {string[]} playerIds - array of player IDs
  * @returns {Promise<string>} Promise that resolves with the ID of the newly created game.
  * @throws Will throw an error if there is an issue creating the game.
  */
-async function createGame(player1Id, player2Id) { //TODO: add support for more than one player here by changing the number of players in the array
+async function createGame(playerIds) { //TODO: add support for more than one player here by changing the number of players in the array
     try {
+        const gameCode = generateUniqueGameCode(Array.from(gameCodes.keys()));
+        const players = playerIds.map(id => {
+
+            const isInvalidObjectId = !mongoose.Types.ObjectId.isValid(id) && id.startsWith('guest');
+            if(!isInvalidObjectId && !id.startsWith('guest')) {
+                throw new Error('Invalid player ID');
+            }
+            return isInvalidObjectId ?  { guestId: id } : { user: id };
+        });
         const newGame = new Game({
-            players: [
-                { user: player1Id },
-                { user: player2Id }
-            ],
+            gameCode: gameCode,
+            players: players,
             state: GameState.NOT_STARTED //waiting for players to join
         });
         const savedGame = await newGame.save();
@@ -166,7 +183,8 @@ async function createGame(player1Id, player2Id) { //TODO: add support for more t
         //TODO: define a gamestate type and use here
         games.set(gameId, {
             id: gameId,
-            players: [player1Id, player2Id],
+            gameCode: gameCode,
+            players: playerIds,
             state: GameState.NOT_STARTED,
             playerData: new Map(),
             elapsedTime: 0
@@ -180,6 +198,7 @@ async function createGame(player1Id, player2Id) { //TODO: add support for more t
                 words: []
             })
         });
+        gameCodes.set(gameCode, gameId);
         logger.info(`GameData: ${JSON.stringify({
             ...games.get(gameId),
             playerData: Array.from(games.get(gameId).playerData.entries())
@@ -190,6 +209,22 @@ async function createGame(player1Id, player2Id) { //TODO: add support for more t
         logger.error(`Error creating game: ${err}`);
         throw err;
     }
+}
+
+function generateGameCode(length = 4){
+    const characters = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let code = '';
+    for (let i = 0; i < length; i++) {
+        code += characters.charAt(Math.floor(Math.random() * characters.length));
+    }
+    return code;
+}
+function generateUniqueGameCode(existingCodes, length=6) {
+    let code = generateGameCode(length);
+    while (existingCodes.includes(code)) {
+        code = generateGameCode(length);
+    }
+    return code;
 }
 
 function endGame(gameId, namespace) {
@@ -214,6 +249,11 @@ function endGame(gameId, namespace) {
         )
     };
     namespace.to(gameId).emit('game_ended', gameResults);
+    if(winner && winner.startsWith('guest')){
+        winner = new Winner({ guestId: winner });
+    }else if(winner){
+        winner = new Winner({ user: winner });
+    }
     Game.findByIdAndUpdate(gameId, { 
         state: GameState.FINISHED,
         winner: winner,

@@ -34,24 +34,36 @@ const apiAuth = (req, res, next) => {
  */
 async function socketAuth(socket, next) {
     try {
+      logger.debug('Socket authentication middleware triggered, auth data:', socket.handshake.auth);
       const token = socket.handshake.auth.token || socket.handshake.query.token;
-      if (!token) {
-        logger.warn('Socket connection rejected - no token provided');
-        return next(new Error('Authentication error: No token provided'));
+      const guestId = socket.handshake.auth.guestId || socket.handshake.query.guestId;
+      if (!token && !guestId) {
+        logger.warn('Socket connection rejected - no token or guestId provided');
+        return next(new Error('Authentication error: No token or guestId provided'));
       }
-      const decoded = jwt.verify(token, JWT_SECRET);
-      socket.userId = decoded.id;
-      socket.username = decoded.username;
-      await User.findByIdAndUpdate(socket.userId, { 
-        isOnline: true, 
-        lastActive: Date.now() 
-      });
-      logger.info(`User authenticated via socket: ${socket.username} (${socket.userId})`);
-
+      if(token){
+        const decoded = jwt.verify(token, JWT_SECRET);
+        socket.userId = decoded.id;
+        socket.username = decoded.username;
+        await User.findByIdAndUpdate(socket.userId, { 
+          isOnline: true, 
+          lastActive: Date.now() 
+        });
+        logger.info(`User authenticated via socket: ${socket.username} (${socket.userId})`);
+      }
       const gameId = socket.handshake.auth.gameId;
       if (gameId) {
         socket.gameId = gameId;
         logger.info(`auth middleware added a gameId to the socket: ${gameId}`);
+      }
+      const gameCode = socket.handshake.auth.gameCode;
+      if (gameCode) {
+        socket.gameCode = gameCode;
+        logger.info(`auth middleware added a gameCode to the socket: ${gameCode}`);
+      }
+      if (guestId) {
+        socket.userId = guestId;
+        logger.info(`Socket authenticated as guest: ${guestId}`);
       }
       next();
     } catch (error) {

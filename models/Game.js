@@ -3,12 +3,40 @@ const GameState = require('../types/gameState');
 
 const Schema = mongoose.Schema;
 
+const winnerSchema = new Schema({
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: function() {
+        return !this.guestId;
+      }
+    },
+    guestId: {
+      type: String,
+      required: function() {
+        return !this.user;
+      }
+    }
+}, { _id: false });
+
 const gameSchema = new Schema({
+    gameCode: {
+        type: String,
+        required: false
+    },
     players: [{
         user: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User',
-            required: true
+            required: function() {
+                return !this.guestId; //only one is required
+            }
+        },
+        guestId: {
+            type: String,
+            required: function() {
+                return !this.user; //only one is required
+            }
         },
         points: {
             type: Number,
@@ -28,10 +56,7 @@ const gameSchema = new Schema({
         type: Number, //time the game took in milliseconds
         default: 0
     },
-    winner: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User'
-    },
+    winner: winnerSchema,
     endTime: {
         type: Date
     },
@@ -51,5 +76,6 @@ gameSchema.pre('save', function(next) { //ensure that the updated date is accura
 });
 
 const Game = mongoose.model('Game', gameSchema);
+const Winner = mongoose.model('Winner', winnerSchema);
 
-module.exports = Game;
+module.exports = {Game, Winner};

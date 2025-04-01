@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const logger = require('../utils/logger');
 const gameModule = require('../socket/gameSocket');
+const lobbyModule = require('../socket/lobbyManager');
 const { socketAuth } = require("../middleware/auth");
 
 const connectedUsers = new Map(); //{ userId: socketId }
@@ -194,7 +195,7 @@ function initializeSocket(server) {
     });
 
     socket.on("game_invite_accept", async (data) => {
-      const gameId = await gameModule.createGame(socket.userId, data.senderId);
+      const gameId = await gameModule.createGame([socket.userId, data.senderId]);
       socket.emit("game_init", {gameId: gameId, opponents: [{userId: data.senderId, username: getSocketByUserId(data.senderId).username}]});
       getSocketByUserId(data.senderId).emit("game_init", {gameId: gameId, opponents: [{userId: socket.userId, username: socket.username}]});
       //now we wait for them both to connect to the game namespace
@@ -203,6 +204,8 @@ function initializeSocket(server) {
 
   const gameNamespace = io.of('/game');
   gameModule.initializeGameSocket(gameNamespace, socketAuth)
+  const lobbyNamespace = io.of('/lobby');
+  lobbyModule.initializeLobbySocket(lobbyNamespace);
 
   setInterval(checkInactiveUsers, ONLINE_STATUS_INTERVAL);
   return io;
