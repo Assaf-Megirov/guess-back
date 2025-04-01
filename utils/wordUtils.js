@@ -72,8 +72,24 @@ function getNextTierCombos(tree, letters) {
     return nextLetters.map(nextLetter => letters + nextLetter);
 }
 
+function isValidWord(word, letters, dict){
+  const lowerWord = word.toLowerCase();
+  const lowerLetters = letters.toLowerCase();
+
+  if(!dict.has(lowerWord)){
+      return {valid: false, reason: `${word} is not a word!`};
+  }
+  for (const char of lowerLetters) {
+      if (!lowerWord.includes(char)) {
+        return {valid: false, reason: `${word} doesnt contain the letter: ${char}!`};
+      }
+  }
+  return {valid: true, reason: ''};
+}
+
 module.exports = {
     loadDictionary,
     loadLetterTreeSync,
-    getNextTierCombos
+    getNextTierCombos,
+    isValidWord
 };

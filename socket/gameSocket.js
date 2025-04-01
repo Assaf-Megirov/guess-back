@@ -320,7 +320,7 @@ function isValidWord(word, letters, usedWords){
     }
     for (const char of lowerLetters) {
         if (!lowerWord.includes(char)) {
-          return {valid: false, reason: `${word} does'nt contain the letter: ${char}!`};
+          return {valid: false, reason: `${word} doesnt contain the letter: ${char}!`};
         }
     }
     return {valid: true, reason: ''};
