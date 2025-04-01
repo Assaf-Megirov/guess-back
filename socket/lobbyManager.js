@@ -1,5 +1,6 @@
 const gameModule = require("./gameSocket");
 const logger = require("../utils/logger");
+const Guest = require("../models/Guest");
 
 const lobbies = new Map(); //{lobbyCode: string, {players: {playerId: string, username: string, ready: boolean}[], admin: {playerId: string, username: string}}}
 const socketToUser = new Map(); //{socketId: string, playerId: string}
@@ -49,7 +50,7 @@ function initializeLobbySocket(lobbyNamespace) {
             socket.emit('lobby_created', {code});
         });
 
-        socket.on('join_lobby', (data) => {
+        socket.on('join_lobby', async (data) => {
             const code = data.code;
             if(!validateCodeSyntax(code)){
                 logger.warn(`User tried to join invalid lobby code ${code}`);
@@ -71,6 +72,15 @@ function initializeLobbySocket(lobbyNamespace) {
             socket.emit('joined_lobby', {code, players: lobby.players, admin: lobby.admin});
             broadcastLobbyState(lobbyNamespace, code);
             logger.info(`User ${playerId} joined lobby ${code}`);
+            try{
+                const guest = await Guest.findOne({guestId: playerId});
+                if(guest){
+                    guest.username = username;
+                    await guest.save();
+                }
+            } catch (error) {
+                logger.error(`Error saving guests ${playerId} username ${username}: ${error}`);
+            }
         });
 
         socket.on('ready', async (data) => {
@@ -103,6 +113,9 @@ function initializeLobbySocket(lobbyNamespace) {
                 logger.info(`All players are ready in lobby ${code}, starting game...`);
                 const gameId = await gameModule.createGame(lobby.players.map(player => player.playerId));
                 lobbyNamespace.to(code).emit('start_game', {gameId});
+                //TODO: keep lobby alive until:
+                //game is over and then after a timeout(to allow for players to either leave or choose to stay)
+                //check if any players have reconnected to the lobby and if not, delete the lobby
             }
         });
 
@@ -184,6 +197,9 @@ function initializeLobbySocket(lobbyNamespace) {
             }
             const gameId = await gameModule.createGame(lobby.players.map(player => player.playerId));
             lobbyNamespace.to(code).emit('start_game', {gameId});
+            //TODO: keep lobby alive until:
+            //game is over and then after a timeout(to allow for players to either leave or choose to stay)
+            //check if any players have reconnected to the lobby and if not, delete the lobby
         });
 
         socket.on('disconnect', () => {

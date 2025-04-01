@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const Guest = require('../models/Guest');
 const logger = require('../utils/logger');
 const { apiAuth, JWT_SECRET } = require('../middleware/auth');
 
@@ -201,6 +202,9 @@ router.post('/logout', apiAuth, async (req, res) => {
 router.get('/guestId', async (req, res) => {
   try {
     const guestId = generateGuestId();
+    const newGuest = new Guest({ guestId });
+    await newGuest.save();
+    logger.info('Guest ID generated successfully', { guestId });
     res.json({ guestId });
   } catch (error) {
     logger.error('Error generating guest ID:', error);
