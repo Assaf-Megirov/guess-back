@@ -122,17 +122,6 @@ function initializeGameSocket(gameNamespace, authMiddleware) {
         });
 
         /**
-         * Handles game end event
-         * @event end_game
-         * @param {Object} data - Game end data
-         * @example Client: socket.emit('end_game', { gameId: '12345' });
-         */
-        socket.on('end_game', (data) => {
-            logger.info(`Game ended by user: ${socket.userId} for game: ${data.gameId}`);
-            //TODO: end game and clear intervals
-        });
-
-        /**
          * Handles socket disconnection
          * @event disconnect
          */
@@ -309,9 +298,14 @@ function distributeLetters(gameState){
  * @returns {{valid: boolean, reason: string}} An object indicating whether the word is valid and the reason if it is not.
  */
 function isValidWord(word, letters, usedWords){
+    if(!word || !letters){
+        return {valid: false, reason: 'Word and letters are required!'};
+    }
+    if (typeof word !== 'string' || typeof letters !== 'string' || !/^[a-zA-Z]+$/.test(word) || !/^[a-zA-Z]+$/.test(letters)) {
+        return {valid: false, reason: 'Word and letters must be strings and only contain letters'};
+    }
     const lowerWord = word.toLowerCase();
     const lowerLetters = letters.toLowerCase();
-
     if(!words.has(lowerWord)){
         return {valid: false, reason: `${word} is not a word!`};
     }
