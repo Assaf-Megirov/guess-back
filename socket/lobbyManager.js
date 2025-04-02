@@ -46,12 +46,13 @@ function initializeLobbySocket(lobbyNamespace) {
         socket.on('create_lobby', (data) => {
             const code = generateUniqueLobbyCode(Array.from(lobbies.keys()));
             lobbies.set(code, {players: [], admin: {playerId: playerId, username: data.username}}); //the admin is still expected to join the lobby via the join_lobby event
-            logger.info(`Lobby created with code ${code}`);
+            logger.info(`Lobby created with code ${code}`); 
             socket.emit('lobby_created', {code});
         });
 
         socket.on('join_lobby', async (data) => {
             const code = data.code;
+            logger.info(`User ${playerId} trying to join lobby ${code}`);
             if(!validateCodeSyntax(code)){
                 logger.warn(`User tried to join invalid lobby code ${code}`);
                 socket.emit('invalid_lobby_code', {code});

@@ -49,12 +49,21 @@ function initializeGameSocket(gameNamespace, authMiddleware) {
         }
         connectedPlayers.get(gameId).add(userId); //add player to the map at this game
         const game = games.get(gameId);
+        if(!game){
+            logger.warn(`Game ${gameId} not found`);
+            return socket.disconnect('Game not found');
+        }
         if(game && connectedPlayers.get(gameId).size === game.players.length){
             logger.info(`All players connected to game ${gameId}. Starting game...`);
             game.state = GameState.IN_PROGRESS;
 
             game.startTime = Date.now();
             game.elapsedTime = 0;
+            if(gameTimers.has(gameId)){
+                clearInterval(gameTimers.get(gameId));
+                logger.info(`Cleared elapsed time tracking for game ${gameId}`);
+                gameTimers.delete(gameId);
+            }
             gameTimers.set(gameId, setInterval(async () => {
                 const currentGame = games.get(gameId);
                 if (currentGame) {
@@ -96,7 +105,10 @@ function initializeGameSocket(gameNamespace, authMiddleware) {
                 logger.info(`Move from user ${userId} is invalid because: ${reason}`);
             }else{
                 const currentGame = games.get(gameId);
-                if(++currentGame.playerData.get(userId).points > POINTS_PER_LETTER){
+                const currentPoints = ++currentGame.playerData.get(userId).points;
+                const currentIncreases = currentGame.playerData.get(userId).letterIncreases;
+                if( currentPoints > POINTS_PER_LETTER * (currentIncreases+1)){
+                    currentGame.playerData.get(userId).letterIncreases = currentIncreases + 1;
                     //increase the letters for all opponents
                     currentGame.playerData.forEach((data, playerId) => {
                         if (playerId !== userId) {
@@ -195,7 +207,8 @@ async function createGame(playerIds) { //TODO: add support for more than one pla
                 letters: "",
                 written: "",
                 words: [],
-                username: username // Store username in playerData
+                username: username,
+                letterIncreases: 0
             });
         }
 
@@ -324,7 +337,8 @@ function incrementLetters(letters){
     const lowerLetters = letters.toLowerCase();
     const possibleCombos = getNextTierCombos(letterTree, lowerLetters);
     if(!possibleCombos || possibleCombos.length === 0){
-        throw new Error('No combinations for: ' + lowerLetters);
+        // If there are no possible combos, return the current letters
+        return letters;
     }
     const randomIndex = Math.floor(Math.random() * possibleCombos.length);
     return possibleCombos[randomIndex];
