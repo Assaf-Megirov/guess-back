@@ -5,6 +5,9 @@ const Guest = require("../models/Guest");
 const lobbies = new Map(); //{lobbyCode: string, {players: {playerId: string, username: string, ready: boolean}[], admin: {playerId: string, username: string}}}
 const socketToUser = new Map(); //{socketId: string, playerId: string}
 
+const CHECK_INTERVAL = 60 * 1000; // 1 minute in milliseconds.
+const INACTIVITY_LIMIT = 30 * 60 * 1000; // 30 minutes in milliseconds.
+
 function generateLobbyCode(length = 4){
     const characters = 'abcdefghijklmnopqrstuvwxyz0123456789';
     let code = '';
@@ -35,9 +38,34 @@ function broadcastLobbyState(namespace, lobbyCode) {
         });
     }
 }
+/**
+ * Call this function whenever there's a lobby update (player join/leave, etc.)
+ * to update the lastActive timestamp.
+ * @param {string} lobbyId
+ */
+function updateLobbyActivity(lobbyId) {
+    const lobby = lobbies.get(lobbyId);
+    if (lobby) {
+      lobby.lastActive = Date.now();
+    }
+}
+/**
+ * Checks all lobbies for inactivity.
+ * If a lobby has no players and has been inactive for over 30 minutes, it gets deleted.
+ */
+function checkLobbiesForInactivity() {
+    const now = Date.now();
+    for (const [lobbyId, lobby] of lobbies.entries()) {
+      if (lobby.players.length === 0 && (now - lobby.lastActive > INACTIVITY_LIMIT)) {
+        lobbies.delete(lobbyId);
+        console.log(`Deleted lobby ${lobbyId} due to inactivity`);
+      }
+    }
+}
 
 function initializeLobbySocket(lobbyNamespace) {
     logger.info(`Lobby Namespace initialized`);
+    setInterval(checkLobbiesForInactivity, CHECK_INTERVAL);
     lobbyNamespace.on("connection", (socket) => {
         const playerId = socket.handshake.auth.playerId;
         socketToUser.set(socket.id, playerId);
@@ -73,6 +101,7 @@ function initializeLobbySocket(lobbyNamespace) {
             socket.emit('joined_lobby', {code, players: lobby.players, admin: lobby.admin});
             broadcastLobbyState(lobbyNamespace, code);
             logger.info(`User ${playerId} joined lobby ${code}`);
+            updateLobbyActivity(code);
             try{
                 const guest = await Guest.findOne({guestId: playerId});
                 if(guest){
@@ -108,6 +137,7 @@ function initializeLobbySocket(lobbyNamespace) {
             lobby.players[playerIndex].ready = true;
             broadcastLobbyState(lobbyNamespace, code);
             logger.info(`User ${playerId} is ready in lobby ${code}`);
+            updateLobbyActivity(code);
 
             const allPlayersReady = lobby.players.every(player => player.ready === true);
             if(allPlayersReady && lobby.players.length > 1){
@@ -144,6 +174,7 @@ function initializeLobbySocket(lobbyNamespace) {
             lobby.players[playerIndex].ready = false;
             broadcastLobbyState(lobbyNamespace, code);
             logger.info(`User ${playerId} is unready in lobby ${code}`);
+            updateLobbyActivity(code);
         });
 
         socket.on('leave_lobby', (data) => {
@@ -170,6 +201,7 @@ function initializeLobbySocket(lobbyNamespace) {
             lobby.players.splice(playerIndex, 1);
             broadcastLobbyState(lobbyNamespace, code);
             logger.info(`User ${playerId} left lobby ${code}`);
+            updateLobbyActivity(code);
         });
 
         socket.on('start_game', async (data) => {
@@ -198,6 +230,7 @@ function initializeLobbySocket(lobbyNamespace) {
             }
             const gameId = await gameModule.createGame(lobby.players.map(player => player.playerId));
             lobbyNamespace.to(code).emit('start_game', {gameId});
+            updateLobbyActivity(code);
             //TODO: keep lobby alive until:
             //game is over and then after a timeout(to allow for players to either leave or choose to stay)
             //check if any players have reconnected to the lobby and if not, delete the lobby
@@ -215,7 +248,9 @@ function initializeLobbySocket(lobbyNamespace) {
                         lobby.players.splice(playerIndex, 1);
                         logger.info(`User ${playerId} left lobby ${lobbyCode}`);
                         broadcastLobbyState(lobbyNamespace, lobbyCode);
+                        updateLobbyActivity(lobbyCode);
                     }
+                    //check if the lobby is abondoned (no players left) and 10m passed since the last player left
                 })
                 logger.info(`User ${playerId} disconnected from socket ${socketId}`);
             }

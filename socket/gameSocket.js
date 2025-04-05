@@ -133,10 +133,6 @@ function initializeGameSocket(gameNamespace, authMiddleware) {
             gameNamespace.to(gameId).emit("game_state", serializableGame);
         });
 
-        /**
-         * Handles socket disconnection
-         * @event disconnect
-         */
         socket.on('disconnect', () => {
             logger.info(`Game socket disconnected for user: ${socket.userId}`);
             if(connectedPlayers.has(gameId)){
@@ -175,9 +171,10 @@ async function createGame(playerIds) { //TODO: add support for more than one pla
         const gameCode = generateUniqueGameCode(Array.from(gameCodes.keys()));
         const players = playerIds.map(id => {
             const isInvalidObjectId = !mongoose.Types.ObjectId.isValid(id) && id.startsWith('guest');
-            if (!isInvalidObjectId && !id.startsWith('guest')) {
-                throw new Error('Invalid player ID');
-            }
+            // what the fuck is this shit (i assume to prevent random ids from being used as guest ids)
+            // if (!isInvalidObjectId && !id.startsWith('guest')) { 
+            //     throw new Error('Invalid player ID');
+            // }
             return isInvalidObjectId ? { guestId: id } : { user: id };
         });
 
