@@ -17,6 +17,7 @@ const POINTS_PER_LETTER = 10;
 const GAME_START_DELAY = 2000;
 const ELAPSED_TIME_INTERVAL = 1000; //1 second
 const GAME_END_TIME = 1 * 60 //1 minutes
+const PLAYER_TIMEOUT = 10 * 1000; //10 seconds
 
 /**
  * Initializes game-related socket events
@@ -53,7 +54,18 @@ function initializeGameSocket(gameNamespace, authMiddleware) {
             logger.warn(`Game ${gameId} not found`);
             return socket.disconnect('Game not found');
         }
-        if(game && connectedPlayers.get(gameId).size === game.players.length){
+        if(game.pendingPlayers && game.pendingPlayers.has(userId)){
+            const pendingPlayer = game.pendingPlayers.get(userId);
+            if(pendingPlayer.timeoutId){
+                clearTimeout(pendingPlayer.timeoutId);
+                game.pendingPlayers.delete(userId);
+                logger.info(`Cleared timeout for player ${userId} in game ${gameId}`);
+            }
+            //because this player was added to the connected players set in the lines above we need to make sure the game doesnt restart and emit the resume event
+            logger.info(`Player ${userId} reconnected to game ${gameId}`);
+            gameNamespace.to(gameId).emit("game_resumed", {reason: "player_reconnected", playerId: userId, username: game.playerData.get(userId).username});
+            game.state = GameState.IN_PROGRESS;
+        } else if(game && connectedPlayers.get(gameId).size === game.players.length){
             logger.info(`All players connected to game ${gameId}. Starting game...`);
             game.state = GameState.IN_PROGRESS;
 
@@ -67,8 +79,10 @@ function initializeGameSocket(gameNamespace, authMiddleware) {
             gameTimers.set(gameId, setInterval(async () => {
                 const currentGame = games.get(gameId);
                 if (currentGame) {
+                    if(currentGame.state !== GameState.IN_PROGRESS){
+                        return;
+                    }
                     currentGame.elapsedTime = Math.floor((Date.now() - currentGame.startTime) / 1000);
-
                     if(currentGame.elapsedTime >= GAME_END_TIME){
                         logger.info(`Game ${gameId} ended after ${currentGame.elapsedTime} seconds`);
                         await endGame(gameId, gameNamespace);
@@ -77,7 +91,9 @@ function initializeGameSocket(gameNamespace, authMiddleware) {
                     }
                 }
             }, ELAPSED_TIME_INTERVAL));
-
+            game.playerData.forEach((data, playerId) => {
+                data.isPlaying = true;
+            });
             Game.findByIdAndUpdate(gameId, { state: GameState.IN_PROGRESS })
             .then(() => {
                 setTimeout(() => {  //add delay to allow for all players to register for events before emitting them
@@ -136,12 +152,35 @@ function initializeGameSocket(gameNamespace, authMiddleware) {
         socket.on('disconnect', () => {
             logger.info(`Game socket disconnected for user: ${socket.userId}`);
             if(connectedPlayers.has(gameId)){
-                connectedPlayers.get(gameId).delete(userId);
+                connectedPlayers.get(gameId).delete(userId); //delete player from the set of players in this game in the connectedPlayers map
                 const game = games.get(gameId);
                 if(game && game.state === GameState.IN_PROGRESS){
                     //TODO: handle mid game disconnection
+                    //if there are still players in the game pause the game and emit a pause event
+                    if(connectedPlayers.get(gameId).size > 0){
+                        game.state = GameState.PAUSED;
+                        gameNamespace.to(gameId).emit("game_paused", {reason: "player_disconnected", playerId: userId, username: games.get(gameId).playerData.get(userId).username});
+                        //add the player to the pending players list
+                        game.pendingPlayers = game.pendingPlayers || new Map();
+                        const timeoutId = setTimeout(() => {
+                            game.state = GameState.IN_PROGRESS;
+                            //print serializable game data to the console
+                            const serializableGame = {
+                                ...game,
+                                playerData: Object.fromEntries(game.playerData)
+                            };
+                            game.playerData.get(userId).isPlaying = false;
+                            gameNamespace.to(gameId).emit("game_state", serializableGame);
+                            logger.info(`Emitted game state after timeout for game ${gameId}: ${JSON.stringify(serializableGame)}`);
+                            gameNamespace.to(gameId).emit("game_resumed", {reason: "player_left", playerId: userId, username: games.get(gameId).playerData.get(userId).username});
+                            game.pendingPlayers.delete(userId);
+                            logger.info(`Game ${gameId} unpaused due to player failing to reconnect in time`);
+                        }, PLAYER_TIMEOUT);
+                        game.pendingPlayers.set(userId, {timeoutId});
+                        logger.info(`Game ${gameId} paused due to player disconnection`);
+                    }
                 }
-                if(connectedPlayers.get(gameId).size === 0) {
+                if(connectedPlayers.get(gameId).size === 0 && (!game.pendingPlayers || game.pendingPlayers.size === 0)){ //if there are no connected players AND (EITHER there is no pending players map OR the pending players map is empty) then end the game
                     if (gameTimers.has(gameId)) {
                         clearInterval(gameTimers.get(gameId));
                         gameTimers.delete(gameId);
@@ -205,7 +244,8 @@ async function createGame(playerIds) { //TODO: add support for more than one pla
                 written: "",
                 words: [],
                 username: username,
-                letterIncreases: 0
+                letterIncreases: 0,
+                isPlaying: false
             });
         }
 
@@ -250,6 +290,7 @@ async function endGame(gameId, namespace) {
             highestScore = data.points;
             winner = playerId;
         }
+        data.isPlaying = false;
     });
     const gameResults = {
         gameId: gameId,
