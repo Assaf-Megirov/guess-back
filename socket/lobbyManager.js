@@ -25,7 +25,8 @@ function generateUniqueLobbyCode(existingCodes, length=4) {
 }
 function validateCodeSyntax(code) {
     const regex = /^[a-zA-Z0-9]{4}$/;
-    return regex.test(code);
+    const lowerCode = code.toLowerCase();
+    return regex.test(lowerCode);
 }
 
 function broadcastLobbyState(namespace, lobbyCode) {
