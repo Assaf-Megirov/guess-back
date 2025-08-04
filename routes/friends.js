@@ -531,4 +531,26 @@ router.get('/online', apiAuth, async (req, res) => {
   }
 });
 
+//finds all users whose username contains the search term
+router.get('/find', apiAuth, async (req, res) => {
+  try {
+    const rawInput = req.query.username || '';
+    logger.debug(`finding user: ${rawInput}`);
+    const safeInput = escapeRegex(rawInput);
+    logger.debug(`safe input: ${safeInput}`);
+    //TODO: add pagination
+    const users = await User.find({
+      username: { $regex: safeInput, $options: 'i' }
+    });
+    
+    res.json(users);
+  } catch (error) {
+    logger.error('Error finding users:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+function escapeRegex(input) {
+  return input.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+}
+
 module.exports = { router }; 
