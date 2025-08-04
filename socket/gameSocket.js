@@ -83,7 +83,7 @@ function initializeGameSocket(gameNamespace, authMiddleware) {
                         return;
                     }
                     currentGame.elapsedTime = Math.floor((Date.now() - currentGame.startTime) / 1000);
-                    if(currentGame.elapsedTime >= GAME_END_TIME){
+                    if(currentGame.elapsedTime >= currentGame.gameDuration){
                         logger.info(`Game ${gameId} ended after ${currentGame.elapsedTime} seconds`);
                         await endGame(gameId, gameNamespace);
                         clearInterval(gameTimers.get(gameId));
@@ -113,7 +113,7 @@ function initializeGameSocket(gameNamespace, authMiddleware) {
         }
         socket.join(gameId);
 
-        socket.on("move", (data) =>{
+        socket.on("move", async (data) =>{
             logger.info(`User ${userId} submitted move: ${data}`);
             const {valid, reason} = isValidWord( data,games.get(gameId).playerData.get(userId).letters, games.get(gameId).playerData.get(userId).words);
             if(!valid){
@@ -123,7 +123,13 @@ function initializeGameSocket(gameNamespace, authMiddleware) {
                 const currentGame = games.get(gameId);
                 const currentPoints = ++currentGame.playerData.get(userId).points;
                 const currentIncreases = currentGame.playerData.get(userId).letterIncreases;
-                if( currentPoints > POINTS_PER_LETTER * (currentIncreases+1)){
+                if(currentGame.victoryThreshold && currentPoints >= currentGame.victoryThreshold && currentGame.victoryThreshold > 0){
+                    //if the game has a victory threshold and the player has reached it, end the game
+                    await endGame(gameId, gameNamespace);
+                    logger.info(`Game ${gameId} ended because player ${userId} reached the victory threshold of ${currentGame.victoryThreshold}`);
+                    return;
+                }
+                if( currentPoints > currentGame.letterAddFrequency * (currentIncreases+1) && currentGame.letterAddFrequency > 0){
                     currentGame.playerData.get(userId).letterIncreases = currentIncreases + 1;
                     //increase the letters for all opponents
                     currentGame.playerData.forEach((data, playerId) => {
@@ -201,11 +207,45 @@ function initializeGameSocket(gameNamespace, authMiddleware) {
  * 
  * @async
  * @function createGame
- * @param {string[]} playerIds - array of player IDs
+ * @param {string[]} playerIds - array of player IDs (must be valid ObjectIds or guest IDs starting with 'guest')
+ * @param {Object} [options] - Optional game settings
+ * @param {number} [options.gameDuration] - Game duration in milliseconds (default: 120000)
+ * @param {number} [options.letterAddFrequency] - Points needed for letter increase (default: 10)
+ * @param {number} [options.victoryThreshold] - Points needed to win (default: 100)
  * @returns {Promise<string>} Promise that resolves with the ID of the newly created game.
- * @throws Will throw an error if there is an issue creating the game.
+ * @throws {Error} Will throw an error if there is an issue creating the game.
+ * @example
+ * // Create game with default settings
+ * const gameId = await createGame(['user123', 'guest456']);
+ * 
+ * // Create game with custom settings
+ * const gameId = await createGame(['user123'], {
+ *   gameDuration: 180000, // 3 minutes
+ *   victoryThreshold: 50
+ * });
  */
-async function createGame(playerIds) { //TODO: add support for more than one player here by changing the number of players in the array
+async function createGame(playerIds, options = {}) { //TODO: add support for more than one player here by changing the number of players in the array
+    if (!Array.isArray(playerIds) || playerIds.length === 0) {
+        throw new Error('playerIds must be a non-empty array');
+    }
+    
+    const gameSettings = { //now gameSettings will always have default values, the ...options will override the defaults
+        gameDuration: 2 * 60 * 1000,
+        letterAddFrequency: 10,
+        victoryThreshold: 100,
+        ...options
+    };
+    
+    if (gameSettings.gameDuration < 10000 || gameSettings.gameDuration > 3600000) {
+        throw new Error('gameDuration must be between 10 seconds and 60 minutes');
+    }
+    if (gameSettings.letterAddFrequency < 0 || gameSettings.letterAddFrequency > 999) {
+        throw new Error('letterAddFrequency must be between 0 and 999');
+    }
+    if (gameSettings.victoryThreshold < 0 || gameSettings.victoryThreshold > 999) {
+        throw new Error('victoryThreshold must be between 0 and 999');
+    }
+    
     try {
         const gameCode = generateUniqueGameCode(Array.from(gameCodes.keys()));
         const players = playerIds.map(id => {
@@ -220,7 +260,10 @@ async function createGame(playerIds) { //TODO: add support for more than one pla
         const newGame = new Game({
             gameCode: gameCode,
             players: players,
-            state: GameState.NOT_STARTED //waiting for players to join
+            state: GameState.NOT_STARTED, //waiting for players to join
+            gameDuration: gameSettings.gameDuration,
+            letterAddFrequency: gameSettings.letterAddFrequency,
+            victoryThreshold: gameSettings.victoryThreshold
         });
         const savedGame = await newGame.save();
         const gameId = savedGame._id.toString();
@@ -231,7 +274,10 @@ async function createGame(playerIds) { //TODO: add support for more than one pla
             players: playerIds,
             state: GameState.NOT_STARTED,
             playerData: new Map(),
-            elapsedTime: 0
+            elapsedTime: 0,
+            gameDuration: gameSettings.gameDuration,
+            letterAddFrequency: gameSettings.letterAddFrequency,
+            victoryThreshold: gameSettings.victoryThreshold
         });
 
         for (const playerId of playerIds) {
@@ -282,7 +328,7 @@ async function endGame(gameId, namespace) {
     const game = games.get(gameId);
     if (!game) return;
 
-    game.state = GameState.FINISHED;
+    game.state = GameState.COMPLETED;
     let winner = null;
     let highestScore = -1;
     game.playerData.forEach((data, playerId) => {
@@ -312,7 +358,7 @@ async function endGame(gameId, namespace) {
         winner = new Winner({ user: winner });
     }
     Game.findByIdAndUpdate(gameId, { 
-        state: GameState.FINISHED,
+        state: GameState.COMPLETED,
         winner: winner,
         endTime: new Date()
     })

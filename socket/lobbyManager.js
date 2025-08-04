@@ -35,7 +35,12 @@ function broadcastLobbyState(namespace, lobbyCode) {
         namespace.to(lobbyCode).emit('lobby_state', {
             code: lobbyCode,
             players: lobby.players,
-            admin: lobby.admin
+            admin: lobby.admin,
+            gameSettings: lobby.gameSettings || {
+                gameDuration: 2 * 60 * 1000,
+                letterAddFrequency: 10,
+                victoryThreshold: 100
+            }
         });
     }
 }
@@ -74,7 +79,15 @@ function initializeLobbySocket(lobbyNamespace) {
 
         socket.on('create_lobby', (data) => {
             const code = generateUniqueLobbyCode(Array.from(lobbies.keys()));
-            lobbies.set(code, {players: [], admin: {playerId: playerId, username: data.username}}); //the admin is still expected to join the lobby via the join_lobby event
+            lobbies.set(code, {
+                players: [], 
+                admin: {playerId: playerId, username: data.username},
+                gameSettings: {
+                    gameDuration: 2 * 60 * 1000,
+                    letterAddFrequency: 10,
+                    victoryThreshold: 100
+                }
+            }); //the admin is still expected to join the lobby via the join_lobby event
             logger.info(`Lobby created with code ${code}`); 
             socket.emit('lobby_created', {code});
         });
@@ -143,7 +156,7 @@ function initializeLobbySocket(lobbyNamespace) {
             const allPlayersReady = lobby.players.every(player => player.ready === true);
             if(allPlayersReady && lobby.players.length > 1){
                 logger.info(`All players are ready in lobby ${code}, starting game...`);
-                const gameId = await gameModule.createGame(lobby.players.map(player => player.playerId));
+                const gameId = await gameModule.createGame(lobby.players.map(player => player.playerId), lobby.gameSettings);
                 lobbyNamespace.to(code).emit('start_game', {gameId});
                 //TODO: keep lobby alive until:
                 //game is over and then after a timeout(to allow for players to either leave or choose to stay)
@@ -175,6 +188,52 @@ function initializeLobbySocket(lobbyNamespace) {
             lobby.players[playerIndex].ready = false;
             broadcastLobbyState(lobbyNamespace, code);
             logger.info(`User ${playerId} is unready in lobby ${code}`);
+            updateLobbyActivity(code);
+        });
+
+        socket.on('set_game_settings', (data) => {
+            const code = data.code;
+            const playerId = data.playerId;
+            if(!validateCodeSyntax(code)){
+                logger.warn(`User tried to set game settings in invalid lobby code ${code}`);
+                socket.emit('invalid_lobby_code', {code});
+                return;
+            }
+            const lobby = lobbies.get(code);
+            if(!lobby){
+                logger.warn(`User ${playerId} tried to set game settings in non-existent lobby ${code}`);
+                socket.emit('lobby_not_found', {code});
+                return;
+            }
+            if(playerId !== lobby.admin.playerId){
+                logger.warn(`User ${playerId} tried to set game settings in lobby ${code} that they are not the admin`);
+                socket.emit('not_admin', {code});
+                return;
+            }
+            const gameSettings = data.gameSettings;
+            
+            if (!gameSettings || typeof gameSettings !== 'object') {
+                logger.warn(`User ${playerId} tried to set invalid game settings in lobby ${code}`);
+                socket.emit('invalid_game_settings', {code, reason: 'Invalid game settings object'});
+                return;
+            }
+
+            if (gameSettings.gameDuration && (gameSettings.gameDuration < 10000 || gameSettings.gameDuration > 3600000)) {
+                socket.emit('invalid_game_settings', {code, reason: 'gameDuration must be between 10 seconds and 60 minutes'});
+                return;
+            }
+            if (gameSettings.letterAddFrequency && (gameSettings.letterAddFrequency < 0 || gameSettings.letterAddFrequency > 999)) {
+                socket.emit('invalid_game_settings', {code, reason: 'letterAddFrequency must be between 0 and 999'});
+                return;
+            }
+            if (gameSettings.victoryThreshold && (gameSettings.victoryThreshold < 0 || gameSettings.victoryThreshold > 999)) {
+                socket.emit('invalid_game_settings', {code, reason: 'victoryThreshold must be between 0 and 999'});
+                return;
+            }
+            
+            lobby.gameSettings = gameSettings;
+            broadcastLobbyState(lobbyNamespace, code);
+            logger.info(`User ${playerId} set game settings in lobby ${code}`);
             updateLobbyActivity(code);
         });
 
@@ -229,7 +288,7 @@ function initializeLobbySocket(lobbyNamespace) {
                 socket.emit('not_enough_players', {code});
                 return;
             }
-            const gameId = await gameModule.createGame(lobby.players.map(player => player.playerId));
+            const gameId = await gameModule.createGame(lobby.players.map(player => player.playerId), lobby.gameSettings);
             lobbyNamespace.to(code).emit('start_game', {gameId});
             updateLobbyActivity(code);
             //TODO: keep lobby alive until:
