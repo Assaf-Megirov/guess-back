@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Guest = require('../models/Guest');
 const logger = require('../utils/logger');
+const dns = require('dns').promises;
 const { apiAuth, JWT_SECRET } = require('../middleware/auth');
 
 /**
@@ -41,6 +42,9 @@ router.post('/register', async (req, res) => {
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
+      errors.email = ['Please enter a valid email address'];
+    }
+    if (!await isEmailDomainValid(email)) {
       errors.email = ['Please enter a valid email address'];
     }
 
@@ -217,3 +221,21 @@ generateGuestId = () => {
 };
 
 module.exports = { router };
+
+
+async function isEmailDomainValid(email) {
+  const domain = email.split('@')[1];
+  if (!domain) return false;
+
+  try {
+    const mxRecords = await dns.resolveMx(domain);
+    return mxRecords && mxRecords.length > 0;
+  } catch {
+    try {
+      const aRecords = await dns.resolve(domain);
+      return aRecords && aRecords.length > 0;
+    } catch {
+      return false;
+    }
+  }
+}
