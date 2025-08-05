@@ -535,15 +535,34 @@ router.get('/online', apiAuth, async (req, res) => {
 router.get('/find', apiAuth, async (req, res) => {
   try {
     const rawInput = req.query.username || '';
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    
     logger.debug(`finding user: ${rawInput}`);
     const safeInput = escapeRegex(rawInput);
     logger.debug(`safe input: ${safeInput}`);
-    //TODO: add pagination
+    
     const users = await User.find({
+      username: { $regex: safeInput, $options: 'i' }
+    })
+    .select('_id username email isOnline lastActive')
+    .limit(limit)
+    .skip(skip);
+    
+    const total = await User.countDocuments({
       username: { $regex: safeInput, $options: 'i' }
     });
     
-    res.json(users);
+    res.json({
+      users,
+      pagination: {
+        total,
+        page,
+        limit,
+        pages: Math.ceil(total / limit)
+      }
+    });
   } catch (error) {
     logger.error('Error finding users:', error);
     res.status(500).json({ message: 'Server error' });
