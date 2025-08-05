@@ -4,6 +4,7 @@ const User = require('../models/User');
 const logger = require('../utils/logger');
 const gameModule = require('../socket/gameSocket');
 const lobbyModule = require('../socket/lobbyManager');
+const chatModule = require('../socket/chatSocket');
 const { socketAuth } = require("../middleware/auth");
 
 const connectedUsers = new Map(); //{ userId: socketId }
@@ -206,6 +207,8 @@ function initializeSocket(server) {
   gameModule.initializeGameSocket(gameNamespace, socketAuth)
   const lobbyNamespace = io.of('/lobby');
   lobbyModule.initializeLobbySocket(lobbyNamespace);
+  const chatNamespace = io.of('/chat');
+  chatModule.initializeChatSocket(chatNamespace, socketAuth);
 
   setInterval(checkInactiveUsers, ONLINE_STATUS_INTERVAL);
   return io;

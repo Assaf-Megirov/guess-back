@@ -8,6 +8,7 @@ const fs = require('fs');
 const socketManager = require('./socket/socketManager');
 const { router: authRoutes } = require('./routes/auth');
 const { router: friendRoutes } = require('./routes/friends');
+const { router: chatRoutes } = require('./routes/chats');
 const logger = require('./utils/logger');
 
 const app = express();
@@ -40,6 +41,7 @@ mongoose.connect('mongodb://localhost:27017/wordguessinggame')
 
 app.use('/api', authRoutes);
 app.use('/api/friends', friendRoutes);
+app.use('/api/chats', chatRoutes);
 app.use('/api/game', require('./routes/game'));
 
 const httpsServer = https.createServer(sslOptions, app);
