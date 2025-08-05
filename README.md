@@ -53,6 +53,96 @@ Create an ```.env``` file in the root directory with the following values
 - **Chat** -> contains participants array, lastMessage which is populated automatically by the schema via middleware and message count
 - **Message** -> contains the id of the parent chat, sender, content, readBy and editedAt
 
+### Main flow:
+```mermaid
+sequenceDiagram
+    participant C1 as Client 1
+    participant C2 as Client 2
+    participant S as Server
+    participant DB as Database
+
+    %% Lobby Phase
+    Note over C1,S: Lobby Creation & Joining
+    C1->>S: create_lobby({settings})
+    S->>DB: Create lobby
+    S->>C1: lobby_created({code})
+
+    C2->>S: join_lobby({code})
+    S->>DB: Validate lobby
+    S->>C2: joined_lobby({code, players, admin})
+    S->>C1: lobby_state({players, admin})
+
+    %% Ready Phase
+    Note over C1,C2: Player Ready Status
+    opt Player ready
+        C1->>S: ready({code})
+        S->>C1: lobby_state(...)
+        S->>C2: lobby_state(...)
+        C2->>S: ready({code})
+        S->>C1: lobby_state(...)
+        S->>C2: lobby_state(...)
+    end
+
+    %% Game Settings
+    Note right of C1: Admin configures game
+    C1->>S: set_game_settings({code, settings})
+    S->>DB: Update settings
+    S->>C1: lobby_state(...)
+    S->>C2: lobby_state(...)
+
+    %% Game Start
+    Note over S: Start game once all ready
+    C1->>S: start_game({code})
+    S->>DB: Create game
+    S->>C1: start_game({gameId})
+    S->>C2: start_game({gameId})
+
+    %% Game Session
+    Note over S: Initial game state
+    S->>C1: game_started(...)
+    S->>C2: game_started(...)
+    S->>C1: game_state(...)
+    S->>C2: game_state(...)
+
+    %% Gameplay Loop
+    loop Gameplay
+        C1->>S: move({word})
+        S->>DB: Validate word
+        alt Valid word
+            S->>C1: valid({by, GameState})
+            S->>C2: valid({by, GameState})
+        else Invalid word
+            S->>C1: invalid({by, reason})
+            S->>C2: invalid({by, reason})
+        end
+
+        C1->>S: written({text})
+        S->>C1: game_state(...)
+        S->>C2: game_state(...)
+
+        opt Letter threshold reached
+            S->>C1: game_state({letters: +1})
+            S->>C2: game_state({letters: +1})
+        end
+    end
+
+    %% Game End
+    alt Game over (timeout or win)
+        S->>DB: End game, save results
+        S->>C1: game_ended({results, winner})
+        S->>C2: game_ended({results, winner})
+    end
+
+    %% Disconnection Handling
+    Note over C1,S: Disconnection & Recovery
+    C1->>S: disconnect
+    S->>C2: game_paused({reason, playerId, username})
+
+    C1->>S: reconnect
+    S->>C1: game_resumed({reason, playerId, username})
+    S->>C2: game_resumed({reason, playerId, username})
+```
+
 ### Routes
 
 #### Authentication Routes (`/api`)
