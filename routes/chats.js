@@ -8,7 +8,21 @@ const router = express.Router();
 router.get('/', apiAuth, async (req, res) => {
     try{
         const chats = await Chat.findUserChats(req.user.id); //this is already sanitized
-        res.json(chats);
+        const chatsWithUnreadCount = [];
+        
+        for(const chat of chats){
+            const unreadCount = await Message.countDocuments({ 
+                chatId: chat._id, 
+                sender: { $ne: req.user.id },
+                'readBy.user': { $ne: req.user.id }
+            });
+            logger.info(`Unread count for chat ${chat._id}: ${unreadCount}`);
+            
+            const chatObj = chat.toObject();
+            chatObj.unreadCount = unreadCount;
+            chatsWithUnreadCount.push(chatObj);
+        }
+        res.json(chatsWithUnreadCount);
     } catch (error) {
         res.status(500).json({ message: 'Server error' });
     }
