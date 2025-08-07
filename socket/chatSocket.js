@@ -42,12 +42,13 @@ function initializeChatSocket(chatNamespace, authMiddleware) {
             chatNamespace.to(friendId.toString()).emit('friend_stopped_typing', { userId });
         });
         
-        socket.on('mark_as_read', async (data) => {
+        socket.on('mark_message_as_read', async (data) => {
             try {
                 const { messageId } = data;
                 const message = await Message.findById(messageId);
                 
                 if (message) {
+                    logger.info(`User ${userId} marking message ${messageId} as read`);
                     await message.markAsRead(userId);
                     chatNamespace.to(message.sender.toString()).emit('message_read', {
                         messageId,

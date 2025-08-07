@@ -80,10 +80,13 @@ function initializeGameSocket(gameNamespace, authMiddleware) {
                 const currentGame = games.get(gameId);
                 if (currentGame) {
                     if(currentGame.state !== GameState.IN_PROGRESS){
+                        if(currentGame.elapsedTime >= currentGame.gameDuration / 1000){
+                            logger.info(`Game ${gameId} ended after ${currentGame.elapsedTime} seconds, but the game was not in progress`);
+                        }
                         return;
                     }
                     currentGame.elapsedTime = Math.floor((Date.now() - currentGame.startTime) / 1000);
-                    if(currentGame.elapsedTime >= currentGame.gameDuration){
+                    if(currentGame.elapsedTime >= currentGame.gameDuration / 1000){
                         logger.info(`Game ${gameId} ended after ${currentGame.elapsedTime} seconds`);
                         await endGame(gameId, gameNamespace);
                         clearInterval(gameTimers.get(gameId));

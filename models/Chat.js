@@ -71,13 +71,19 @@ chatSchema.statics.sendMessage = async function(userId, friendId, message) { //T
       
       await newMessage.save();
       await chat.updateOne({ updatedAt: Date.now() });
-      return await newMessage.populate({
-        path: 'chatId',
-        populate: {
-          path: 'participants',
+      return await newMessage.populate([
+        {
+          path: 'chatId',
+          populate: {
+            path: 'participants',
+            select: '_id username email avatar'
+          }
+        },
+        {
+          path: 'readBy.user',
           select: '_id username email avatar'
         }
-      });
+      ]);
       
     } catch (error) {
       throw new Error(`Failed to send message: ${error.message}`);
